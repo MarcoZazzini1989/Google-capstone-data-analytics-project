@@ -1,0 +1,219 @@
+---
+title: "Google Capstone"
+author: "Zazzini Marco"
+date: '2023-10-20'
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Load libraries 
+
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(dplyr)
+library(ggplot2)
+library(hms)
+
+```
+
+```{r}
+
+# Load data from March 2023 to August 2023
+
+trip23_Mar <- read.csv("C:/Users/Utente/Downloads/Downloads/divvy/202302-divvy-tripdata.csv") 
+trip23_Apr <- read.csv("C:/Users/Utente/Downloads/Downloads/divvy/202303-divvy-tripdata.csv")
+trip23_May <- read.csv("C:/Users/Utente/Downloads/Downloads/divvy/202304-divvy-tripdata.csv")
+trip23_Jun <- read.csv("C:/Users/Utente/Downloads/Downloads/divvy/202305-divvy-tripdata.csv")
+trip23_Jul <- read.csv("C:/Users/Utente/Downloads/Downloads/divvy/202306-divvy-tripdata.csv")
+trip23_Aug <- read.csv("C:/Users/Utente/Downloads/Downloads/divvy/202307-divvy-tripdata.csv")
+```
+
+```{r}
+# Combine together
+
+trips23<- rbind( trip23_Mar, trip23_Apr, trip23_May, trip23_Jun, trip23_Jul, trip23_Aug)
+```
+
+```{r}
+# Drop useless columns
+
+trips23  <- trips23 %>%  
+  select(-c(start_lat, start_lng, end_lat, end_lng, start_station_id,end_station_id, end_station_name))
+
+```
+
+```{r}
+# Statistics
+
+colnames(trips23)  
+nrow(trips23)  
+dim(trips23)  
+head(trips23, 6)  
+str(trips23)  
+summary(trips23) 
+```
+
+```{r}
+
+#The default format is yyyy-mm-dd
+trips23$date <- as.Date(trips23$started_at)
+trips23$month <- format(as.Date(trips23$date), "%m")
+trips23$day <- format(as.Date(trips23$date), "%d")
+trips23$year <- format(as.Date(trips23$date), "%Y")
+trips23$day_of_week <- format(as.Date(trips23$date), "%A")
+```
+
+
+```{r}
+# Convert start and end time in hours and minutes
+
+trips23$time <- format(trips23$started_at, format= "%H:%M:%S")
+trips23$time <- as_hms(ymd_hms(trips23$time))
+trips23$time2 <- format(trips23$ended_at, format= "%H:%M:%S")
+trips23$time2 <- as_hms(ymd_hms(trips23$time2))
+```
+
+
+```{r}
+# Time length of a bike walk
+trips23$ride_length <- as.double(difftime(trips23$time2, trips23$time))/60
+#change datatype to numeric for further analysis
+
+trips23$ride_length <- as.numeric(as.character(trips23$ride_length))
+```
+
+```{r}
+# View and check changed dataset
+
+str(trips23)
+```
+
+```{r}
+# Remove all blank 
+
+trips23 <- trips23[!(trips23$start_station_name == "HQ QR" | trips23$ride_length<0),]
+head(trips23)
+```
+
+```{r}
+# Calculate values to determine membership type propagation.
+
+aggregate(trips23$ride_length ~ trips23$member_casual, FUN = mean)
+aggregate(trips23$ride_length ~ trips23$member_casual, FUN = median)
+aggregate(trips23$ride_length ~ trips23$member_casual, FUN = max)
+aggregate(trips23$ride_length ~ trips23$member_casual, FUN = min)
+```
+
+```{r}
+# Check day of week
+
+trips23$day_of_week <- ordered( trips23$day_of_week, levels=c("domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"))
+
+```
+
+```{r}
+trips23 %>% 
+  mutate(day_of_week = wday(started_at, label = TRUE)) %>%  
+  group_by(member_casual, day_of_week ) %>%  
+  summarise(number_of_rides = n())
+```
+
+```{r}
+trips23$day_of_week  <- format(as.Date(trips23$date), "%A")
+trips23 %>%                              
+  group_by(member_casual, day_of_week) %>% 
+  summarise(number_of_rides = n()) %>% 
+  arrange(member_casual, day_of_week) %>%
+  ggplot(aes(x = day_of_week, y = number_of_rides, fill = member_casual)) + geom_col(position = "dodge") +
+  scale_fill_manual(values = c("#000000", "#56B4E9")) + 
+  labs(x='Day of Week', y='Total Number of Rides', title='Rides per Week', fill = 'Membership') + 
+  scale_y_continuous(breaks = c(250000, 450000, 550000), labels = c("250K", "450K", "550K"))
+
+# We can see that casual use frequently on Friday(venerdì), Saturday(sabato) and Sunday(domenica), and users who own a membership use on average more throughout the week
+
+```
+
+```{r}
+
+# Total rides per months
+
+trips23 %>%  
+  group_by(member_casual, month) %>%  
+  summarise(total_rides = n(),`average_duration_(mins)` = mean(ride_length)) %>% 
+  arrange(member_casual) %>% 
+  ggplot(aes(x=month, y=total_rides, fill = member_casual)) + geom_col(position = "dodge") + 
+  scale_fill_manual(values = c("#000000", "#56B4E9")) +
+  labs(x= "Month", y= "Total Number of Rides", title = "Rides per Month", fill = "Membership") + 
+  scale_y_continuous(breaks = c(150000, 250000, 350000, 450000), labels = c("150K", "250K", "350K", "450K")) + theme(axis.text.x = element_text(angle = 45))
+
+# During the summer months, casual users predominated.
+# Conversely, during the winter months there is very little activity from regular users.
+# Over the long term, membership users outperform regular/casual users
+
+```
+
+```{r}
+# We know that the company owns two types of bicycles. Let's analyze which type is used more often
+trips23 %>%    
+  ggplot(aes(x = rideable_type, fill = member_casual)) + geom_bar(position = "dodge") + 
+  scale_fill_manual(values = c("#000000", "#56B4E9")) +
+  labs(x= 'Type of Bike', y='Number of Rentals', title='Bikes', fill = 'Membership') +
+  scale_y_continuous(breaks = c(500000, 1000000, 1500000), labels = c("500K", "1Mil", "1.5Mil"))
+```
+
+```{r}
+trips23  %>%       
+  mutate(day_of_week = wday(started_at, label = TRUE)) %>%  
+  group_by(member_casual, day_of_week) %>% 
+  summarise(number_of_rides = n() ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, day_of_week)  %>% 
+  ggplot(aes(x = day_of_week, y = average_duration, fill = member_casual)) +
+  geom_col(position = "dodge") + scale_fill_manual(values = c("#000000", "#56B4E9")) +
+  labs(x='Days of the week', y='Average Mins', title='Average ride time', fill='Membership')
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
